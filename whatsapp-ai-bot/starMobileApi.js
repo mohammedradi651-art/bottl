@@ -424,9 +424,9 @@ function parseReceiptDate(value) {
         .trim();
 
     const datePatterns = [
-        /^(\d{1,2})[\/](\d{1,2})[\/](\d{4})$/,
-        /^(\d{4})[\/](\d{1,2})[\/](\d{1,2})$/,
-        /^(\d{1,2})[\.](\d{1,2})[\.](\d{4})$/
+        /(\d{1,2})[\/](\d{1,2})[\/](\d{4})/,
+        /(\d{4})[\/](\d{1,2})[\/](\d{1,2})/,
+        /(\d{1,2})[\.](\d{1,2})[\.](\d{4})/
     ];
 
     for (const pattern of datePatterns) {
@@ -443,30 +443,57 @@ function parseReceiptDate(value) {
                 day = Number(match[3]);
             }
             const parsed = new Date(year, month, day);
-            if (!Number.isNaN(parsed.getTime())) return parsed;
+            if (!Number.isNaN(parsed.getTime()) &&
+                parsed.getFullYear() === year &&
+                parsed.getMonth() === month &&
+                parsed.getDate() === day) return parsed;
         }
     }
-
-    const parsedDate = new Date(normalized);
-    if (!Number.isNaN(parsedDate.getTime())) return parsedDate;
-
     return null;
+}
+
+function formatReceiptDate(value) {
+    const raw = String(value || "").trim();
+    const parsed = parseReceiptDate(raw);
+    if (!parsed) return "";
+    const day = String(parsed.getDate()).padStart(2, "0");
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const year = parsed.getFullYear();
+    const timeMatch = raw.match(/(?:[T\s]+)(\d{1,2}):(\d{2})(?::\d{2})?\s*(صباحًا|مساءً|AM|PM)?/i);
+    if (!timeMatch) return `${day}/${month}/${year}`;
+    const period = timeMatch[3] ? ` ${timeMatch[3]}` : "";
+    return `${day}/${month}/${year} ${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}${period}`;
 }
 
 function namesMatch(actual, expected) {
     return normalizeName(actual).toLowerCase() === normalizeName(expected).toLowerCase();
 }
 
+function isKuraimiCompany(value) {
+    const company = normalizeName(value)
+        .toLowerCase()
+        .replace(/[إأآ]/g, "ا")
+        .replace(/ـ/g, "")
+        .replace(/[\s_.-]/g, "");
+    return company.includes("الكريمي") ||
+        company.includes("كريمي") ||
+        company.includes("حاسب") ||
+        company.includes("haseb") ||
+        company.includes("hasib") ||
+        company.includes("hasebpay") ||
+        company.includes("alkuraimi") ||
+        company.includes("alkurimi") ||
+        company.includes("kuraimi") ||
+        company.includes("kuraimy");
+}
+
 function isReceiptAuthorized(receipt) {
     if (!receipt || !receipt.transferCompany) {
         return { authorized: false, reason: "Missing transferCompany information" };
     }
-    let companyKey = Object.keys(allowedCompanies).find(key =>
-        receipt.transferCompany.includes(key)
-    );
-    if (!companyKey && /حاسب/i.test(receipt.transferCompany)) {
-        companyKey = "الكريمي";
-    }
+    const companyKey = isKuraimiCompany(receipt.transferCompany)
+        ? "الكريمي"
+        : Object.keys(allowedCompanies).find(key => receipt.transferCompany.includes(key));
     if (!companyKey) {
         return { authorized: false, reason: `الشركة (${receipt.transferCompany}) غير مسموحة` };
     }
@@ -512,5 +539,6 @@ module.exports = {
     isReceiptProcessed,
     creditUserAccount,
     processReceiptWebhook,
-    isReceiptAuthorized
+    isReceiptAuthorized,
+    formatReceiptDate
 };

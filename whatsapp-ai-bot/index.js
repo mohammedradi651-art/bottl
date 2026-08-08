@@ -1,9 +1,12 @@
 const path = require("path");
 const crypto = require("crypto");
-require('dotenv').config({ path: path.resolve(__dirname, "../.env") });
+const fs = require("fs");
+const envPaths = [path.resolve(__dirname, "../.env"), path.resolve(__dirname, ".env")];
+const envPath = envPaths.find(filePath => fs.existsSync(filePath));
+require('dotenv').config(envPath ? { path: envPath } : {});
 const TelegramBot = require("node-telegram-bot-api");
 const { analyzeReceipt } = require("./receiptAnalyzer");
-const { getUserAccount, creditUserAccount, isReceiptAuthorized } = require("./starMobileApi");
+const { getUserAccount, creditUserAccount, isReceiptAuthorized, formatReceiptDate } = require("./starMobileApi");
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ADMIN_CHAT_ID = process.env.TELEGRAM_CHAT_ID ? Number(process.env.TELEGRAM_CHAT_ID) : 932361893;
 const { 
@@ -184,7 +187,16 @@ async function safeSendMessage(bot, chatId, text, options = {}) {
                 ...(index > 0 ? { reply_to_message_id: undefined } : {}),
                 ...(isLastChunk ? { reply_markup: withHomeButton(options.reply_markup) } : {})
             };
-            lastSent = await bot.sendMessage(chatId, chunks[index], sendOptions);
+            try {
+                lastSent = await bot.sendMessage(chatId, chunks[index], sendOptions);
+            } catch (sendError) {
+                if (!/can't parse entities|parse entities|can't find end/i.test(sendError.message || "")) {
+                    throw sendError;
+                }
+                const plainTextOptions = { ...sendOptions };
+                delete plainTextOptions.parse_mode;
+                lastSent = await bot.sendMessage(chatId, chunks[index], plainTextOptions);
+            }
         }
         return lastSent;
     } catch (err) {
@@ -204,6 +216,7 @@ function mainMenuKeyboard() {
                 { text: "شبكات الإنترنت", callback_data: "menu_networks" },
                 { text: "تغذية الحساب", callback_data: "menu_funding" }
             ],
+            [{ text: "خدمات الاتصالات", callback_data: "menu_telecom" }],
             [{ text: "حساباتنا الرسمية", callback_data: "menu_official_accounts" }]
         ]
     };
@@ -222,6 +235,47 @@ function officialAccountsKeyboard() {
             [{ text: "الرئيسية", callback_data: "menu_home" }]
         ]
     };
+}
+
+const TELECOM_SERVICES = [
+    { code: "yem", name: "يمن موبايل", actions: ["query", "solfa", "queryoffer", "bill", "billoffer"] },
+    { code: "you", name: "YOU", actions: ["query", "queryoffer", "bill", "billoffer"] },
+    { code: "yem4g", name: "يمن فورجي", actions: ["query", "bill"] },
+    { code: "post", name: "الهاتف الثابت والإنترنت", actions: ["query", "bill"] },
+    { code: "adenet", name: "عدن نت", actions: ["query", "bill"] }
+];
+
+function telecomServicesKeyboard() {
+    return {
+        inline_keyboard: [
+            TELECOM_SERVICES.slice(0, 2).map(service => ({ text: service.name, callback_data: `telecom_service_${service.code}` })),
+            TELECOM_SERVICES.slice(2, 4).map(service => ({ text: service.name, callback_data: `telecom_service_${service.code}` })),
+            [{ text: TELECOM_SERVICES[4].name, callback_data: `telecom_service_${TELECOM_SERVICES[4].code}` }],
+            [{ text: "الرئيسية", callback_data: "menu_home" }]
+        ]
+    };
+}
+
+function telecomActionsKeyboard(service) {
+    if (service.code === "post") {
+        return { inline_keyboard: [
+            [{ text: "استعلام الإنترنت", callback_data: "telecom_query_post_query_adsl" }],
+            [{ text: "استعلام الهاتف الثابت", callback_data: "telecom_query_post_query_line" }],
+            [{ text: "سداد", callback_data: "telecom_pay_post_bill" }],
+            [{ text: "اختيار شركة أخرى", callback_data: "menu_telecom" }],
+            [{ text: "الرئيسية", callback_data: "menu_home" }]
+        ] };
+    }
+    const buttons = [
+        [{ text: service.code === "yem" ? "استعلام شامل" : "استعلام الرصيد", callback_data: `telecom_query_${service.code}_query` }],
+        ...(service.code !== "yem" && service.actions.includes("solfa") ? [[{ text: "استعلام السلفة", callback_data: `telecom_query_${service.code}_solfa` }]] : []),
+        ...(service.code !== "yem" && service.actions.includes("queryoffer") ? [[{ text: "استعلام الباقات", callback_data: `telecom_query_${service.code}_queryoffer` }]] : []),
+        ...(service.actions.includes("bill") ? [[{ text: "سداد رصيد", callback_data: `telecom_pay_${service.code}_bill` }]] : []),
+        ...(service.actions.includes("billoffer") ? [[{ text: "سداد باقة", callback_data: `telecom_pay_${service.code}_billoffer` }]] : []),
+        [{ text: "اختيار شركة أخرى", callback_data: "menu_telecom" }],
+        [{ text: "الرئيسية", callback_data: "menu_home" }]
+    ];
+    return { inline_keyboard: buttons };
 }
 
 const ALWADI_PACKAGES = [
@@ -271,6 +325,26 @@ function alWadiPackagesText(session) {
     return `🔄 *تجديد كرت منظومة الوادي*\n\n🎫 رقم الكرت: *${session.lastCardNumber || "—"}*\n\nاختر مدة التجديد المطلوبة:`;
 }
 
+function getAlWadiResponseData(response) {
+    return response?.data?.data || response?.data || response?.result || response || {};
+}
+
+function getAlWadiCardValue(response) {
+    const data = getAlWadiResponseData(response);
+    return data.cardNumber || data.cardNo || data.cardCode || data.number || data.card || "";
+}
+
+function formatAlWadiRenewalResult(response, cardNumber, packageName, packagePrice) {
+    const data = getAlWadiResponseData(response);
+    const expiry = data.expiryDate || data.expireDate || data.expirationDate || data.expiry || "";
+    const days = data.daysLeft ?? data.remainingDays ?? data.days ?? "";
+    const returnedCard = getAlWadiCardValue(response);
+    const cardLine = returnedCard ? `\n🎫 *الكرت:* ${returnedCard}` : `\n🎫 *الكرت:* ${cardNumber}`;
+    const expiryLine = expiry ? `\n📅 *تاريخ الانتهاء:* ${expiry}` : "";
+    const daysLine = days !== "" ? `\n⏳ *الأيام المتبقية:* ${days}` : "";
+    return `✅ *تم التجديد بنجاح*${cardLine}\n📦 *الباقة:* ${packageName}\n💰 *المبلغ المخصوم:* ${packagePrice} ريال${expiryLine}${daysLine}\n\nتم التحقق من بيانات الاشتراك الجديدة من النظام.`;
+}
+
 async function sendMainMenu(bot, chatId, messageId) {
     const text = `🌟 *مرحبًا بك في ستار موبايل*
 
@@ -281,6 +355,7 @@ async function sendMainMenu(bot, chatId, messageId) {
 • 👤 إدارة حسابك ومتابعة رصيدك
 • 📡 الاستعلام وتجديد منظومة الوادي
 • 🌐 الاطلاع على خدمات وباقات الإنترنت
+• 📱 الاستعلام والسداد لشركات الاتصالات
 • 🧾 متابعة عملياتك وإيصالاتك
 • 📱 متابعة حساباتنا الرسمية
 
@@ -323,8 +398,54 @@ async function handleMenuCallback(bot, query) {
         return;
     }
 
+    const session = userSessions[senderId] || (userSessions[senderId] = { history: [], state: null });
+
+    if (query.data === "menu_telecom") {
+        await safeSendMessage(bot, chatId, "📱 *خدمات الاتصالات*\n\nاختر الشركة للاستعلام أو السداد:", { reply_markup: telecomServicesKeyboard() });
+        return;
+    }
+
+    if (query.data.startsWith("telecom_service_")) {
+        const serviceCode = query.data.replace("telecom_service_", "");
+        const service = TELECOM_SERVICES.find(item => item.code === serviceCode);
+        if (!service) return;
+        await safeSendMessage(bot, chatId, `📱 *${service.name}*\n\nاختر نوع العملية:`, { reply_markup: telecomActionsKeyboard(service) });
+        return;
+    }
+
+    if (query.data.startsWith("telecom_query_")) {
+        const parts = query.data.split("_");
+        const serviceCode = parts[2];
+        const action = parts[3];
+        const type = parts[4];
+        const service = TELECOM_SERVICES.find(item => item.code === serviceCode);
+        if (!service || !getVerifiedCustomerMobile(senderId, userSessions[senderId])) {
+            await safeSendMessage(bot, chatId, "تعذر تحديد حسابك الموثق. أعد ربط الحساب ثم حاول مرة أخرى.", { reply_markup: backKeyboard() });
+            return;
+        }
+        session.state = "AWAITING_TELECOM_NUMBER";
+        session.pendingTelecomQuery = { service: serviceCode, action, type, serviceName: service.name };
+        await safeSendMessage(bot, chatId, `📱 *${service.name}*\n\nأرسل رقم الهاتف أو الحساب الذي تريد الاستعلام عنه.`, { reply_markup: telecomActionsKeyboard(service) });
+        return;
+    }
+
+    if (query.data.startsWith("telecom_pay_")) {
+        const parts = query.data.split("_");
+        const serviceCode = parts[2];
+        const action = parts[3];
+        const service = TELECOM_SERVICES.find(item => item.code === serviceCode);
+        const payerMobile = getVerifiedCustomerMobile(senderId, userSessions[senderId]);
+        if (!service || !payerMobile) {
+            await safeSendMessage(bot, chatId, "تعذر تحديد حسابك الموثق. أعد ربط الحساب ثم حاول مرة أخرى.", { reply_markup: backKeyboard() });
+            return;
+        }
+        session.state = "AWAITING_TELECOM_NUMBER_FOR_PAYMENT";
+        session.pendingTelecomPayment = { service: serviceCode, action, payerMobile, serviceName: service.name };
+        await safeSendMessage(bot, chatId, `💳 *${service.name}*\n\nأرسل رقم الهاتف أو الحساب المراد السداد له.\n\nبعد ذلك سيُطلب مبلغ السداد، ويكون الدافع هو حسابك الموثق.`, { reply_markup: telecomActionsKeyboard(service) });
+        return;
+    }
+
     if (query.data === "alwadi_renew" || query.data === "alwadi_details" || query.data.startsWith("alwadi_package_")) {
-        const session = userSessions[senderId];
         if (!session?.lastCardNumber) {
             await safeSendMessage(bot, chatId, "📡 لا يوجد كرت محفوظ حالياً. أرسل رقم الكرت للاستعلام عنه أولاً.", { reply_markup: backKeyboard() });
             return;
@@ -368,8 +489,16 @@ async function handleMenuCallback(bot, query) {
         });
 
         if (result.success) {
+            console.log("AlWadi Renew Response:", JSON.stringify(result));
+            const verification = await callAlWadiAPI("/alwadi", {
+                action: "lookup",
+                number: session.lastCardNumber,
+                mobile: targetMobile
+            });
+            console.log("AlWadi Renewal Verification:", JSON.stringify(verification));
+            const verifiedResponse = verification.success ? verification : result;
             session.state = null;
-            await bot.editMessageText(`✅ *تم التجديد بنجاح*\n\n🎫 الكرت: *${session.lastCardNumber}*\n📦 الباقة: *${selectedPackage.name}*\n💰 المبلغ المخصوم: *${selectedPackage.price} ريال*`, {
+            await bot.editMessageText(formatAlWadiRenewalResult(verifiedResponse, session.lastCardNumber, selectedPackage.name, selectedPackage.price), {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: "Markdown",
@@ -519,6 +648,121 @@ async function callNetworksAPI(payload) {
     }
 }
 
+async function callTelecomQuery(service, action, mobile, type) {
+    const params = new URLSearchParams({
+        service,
+        action,
+        mobile
+    });
+    if (type) params.set("type", type);
+    try {
+        const response = await fetch(`${ALWADI_BASE_URL}/query?${params.toString()}`, {
+            method: "GET",
+            headers: {
+                "Authorization": `Bearer ${MASTER_API_TOKEN}`,
+                "Accept": "application/json"
+            }
+        });
+        const data = await response.json();
+        return response.ok ? data : { success: false, statusCode: response.status, ...data };
+    } catch (error) {
+        console.error("Telecom query API error:", error.message);
+        return { success: false, message: "حدث خطأ أثناء الاستعلام من شركة الاتصالات." };
+    }
+}
+
+async function callTelecomPayment(service, action, mobile, amount, payerMobile) {
+    try {
+        const response = await fetch(`${ALWADI_BASE_URL}/pay`, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${MASTER_API_TOKEN}`,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({ service, action, mobile, amount, payerMobile })
+        });
+        const data = await response.json();
+        return response.ok ? data : { success: false, statusCode: response.status, ...data };
+    } catch (error) {
+        console.error("Telecom payment API error:", error.message);
+        return { success: false, message: "حدث خطأ أثناء تنفيذ السداد." };
+    }
+}
+
+function formatTelecomPayload(label, response) {
+    if (response?.success !== true) {
+        const message = extractArabicTelecomText(response?.message);
+        return `❌ ${label}: ${message || "تعذر جلب البيانات من شركة الاتصالات."}`;
+    }
+    const data = response.data || response.result || response;
+    const usefulText = extractArabicTelecomText(data);
+    if (usefulText) return `✅ *${label}:*\n${usefulText}`;
+    return `✅ *${label}:*\nلا توجد تفاصيل إضافية متاحة.`;
+}
+
+function extractArabicTelecomText(value) {
+    if (typeof value === "string") {
+        const text = value.replace(/\s+/g, " ").trim();
+        return /[\u0600-\u06FF]/.test(text) ? text : "";
+    }
+    if (!value || typeof value !== "object") return "";
+
+    const preferredKeys = ["message", "msg", "description", "statusMessage", "resultMessage", "text"];
+    for (const key of preferredKeys) {
+        const message = extractArabicTelecomText(value[key]);
+        if (message) return message;
+    }
+
+    if (Array.isArray(value)) {
+        const items = value.map(item => extractArabicTelecomText(item)).filter(Boolean);
+        return [...new Set(items)].join("\n");
+    }
+
+    const lines = [];
+    const fieldLabels = {
+        balance: "الرصيد",
+        credit: "الرصيد",
+        amount: "المبلغ",
+        debt: "المستحق",
+        loan: "السلفة",
+        solfa: "السلفة",
+        remaining: "المتبقي",
+        expiry: "تاريخ الانتهاء",
+        expiryDate: "تاريخ الانتهاء",
+        packageName: "الباقة",
+        offerName: "الباقة",
+        name: "الاسم",
+        price: "السعر",
+        dataLimit: "الحجم",
+        data: "البيانات",
+        validity: "الصلاحية"
+    };
+    for (const [key, fieldLabel] of Object.entries(fieldLabels)) {
+        const fieldValue = value[key];
+        if (fieldValue !== undefined && fieldValue !== null && typeof fieldValue !== "object") {
+            lines.push(`${fieldLabel}: ${String(fieldValue)}`);
+        }
+    }
+
+    for (const key of ["offers", "packages", "data", "items"]) {
+        if (Array.isArray(value[key])) {
+            const items = value[key].map(item => extractArabicTelecomText(item)).filter(Boolean);
+            lines.push(...items);
+        }
+    }
+    return [...new Set(lines)].join("\n");
+}
+
+async function queryYemMobile(mobile) {
+    const [balance, solfa, offers] = await Promise.all([
+        callTelecomQuery("yem", "query", mobile),
+        callTelecomQuery("yem", "solfa", mobile),
+        callTelecomQuery("yem", "queryoffer", mobile)
+    ]);
+    return `📱 *استعلام يمن موبايل الشامل*\n\nرقم الخدمة: \`${mobile}\`\n\n━━━━━━━━━━━━━━\n${formatTelecomPayload("الرصيد", balance)}\n\n━━━━━━━━━━━━━━\n${formatTelecomPayload("السلفة", solfa)}\n\n━━━━━━━━━━━━━━\n${formatTelecomPayload("الباقات", offers)}`;
+}
+
 
 function formatMobileForAPI(phone) {
     let clean = (phone || "").replace(/[^0-9]/g, "");
@@ -533,6 +777,28 @@ function getVerifiedCustomerMobile(senderId, session = {}) {
     const senderMobile = formatMobileForAPI(senderId);
     const candidate = mobileMap[String(senderId)] || session.registeredMobile || senderMobile;
     return isValidYemeniMobile(candidate) ? candidate : null;
+}
+
+function normalizeTelecomTarget(value) {
+    return String(value || "").replace(/[٠-٩]/g, digit => "٠١٢٣٤٥٦٧٨٩".indexOf(digit)).replace(/\D/g, "");
+}
+
+function isValidTelecomTarget(service, value) {
+    const target = normalizeTelecomTarget(value);
+    if (service === "yem") return /^77\d{7}$/.test(target);
+    if (service === "you") return /^73\d{7}$/.test(target);
+    if (service === "yem4g") return /^10\d{7}$/.test(target);
+    if (service === "post" || service === "adenet") return /^0\d{4,11}$/.test(target);
+    return false;
+}
+
+function telecomTargetHint(service) {
+    if (service === "yem") return "يمن موبايل يجب أن يبدأ بـ 77 ويتكون من 9 أرقام.";
+    if (service === "you") return "رقم YOU يجب أن يبدأ بـ 73 ويتكون من 9 أرقام.";
+    if (service === "yem4g") return "رقم يمن فورجي يجب أن يبدأ بـ 10 ويتكون من 9 أرقام.";
+    if (service === "post") return "رقم الهاتف الثابت أو الإنترنت يجب أن يبدأ بـ 0.";
+    if (service === "adenet") return "رقم عدن نت يجب أن يبدأ بـ 0.";
+    return "أرسل رقمًا صحيحًا للخدمة.";
 }
 
 /**
@@ -608,6 +874,10 @@ function extractCleanAIResponse(data) {
 }
 
 async function generateFastAIResponse(prompt, history = [], userName = "العميل") {
+    if (!GEMINI_API_KEY) {
+        console.error("Gemini API error: GEMINI_API_KEY is missing.");
+        return "عذراً، خدمة المساعد الذكي غير مهيأة حالياً. تواصل مع الإدارة.";
+    }
     const contents = [];
     
     // إرسال آخر 20 رسالة (40 عنصراً: 20 من المستخدم و 20 من البوت)
@@ -652,13 +922,20 @@ async function generateFastAIResponse(prompt, history = [], userName = "العم
                 `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
                 { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
             );
-            if (!res.ok) continue;
+            if (!res.ok) {
+                const errorText = await res.text();
+                console.error(`Gemini ${model} HTTP ${res.status}: ${errorText.slice(0, 500)}`);
+                continue;
+            }
             const data = await res.json();
             const cleanReply = extractCleanAIResponse(data);
             if (cleanReply) return cleanReply;
-        } catch (e) { continue; }
+            console.error(`Gemini ${model} returned no usable text.`);
+        } catch (error) {
+            console.error(`Gemini ${model} connection error:`, error.message);
+        }
     }
-    return `أهلاً بك في *ستار موبايل* ⭐📱\nكيف يمكننا مساعدتك اليوم؟ ✨`;
+    return "عذراً، تعذر تشغيل المساعد الذكي حالياً. تواصل مع الإدارة أو حاول لاحقاً.";
 }
 
 function getMediaMessageObject(msg) {
@@ -1018,7 +1295,18 @@ async function handleTextMessage(textMessage, chatId, senderPhone, pushName, bot
             });
             console.log("AlWadi Renew Response:", JSON.stringify(res));
             if (res.success) {
-                finalReply = `✅ تم تجديد باقة (${packageName}) للكرت (${targetCard}) بنجاح! 🎉\n💰 المبلغ المخصوم: ${packagePrice} ريال\nشكراً لك. ⭐`;
+                const verification = await callAlWadiAPI('/alwadi', {
+                    action: "lookup",
+                    number: targetCard,
+                    mobile: verifiedMobile
+                });
+                console.log("AlWadi Renewal Verification:", JSON.stringify(verification));
+                finalReply = formatAlWadiRenewalResult(
+                    verification.success ? verification : res,
+                    targetCard,
+                    packageName,
+                    packagePrice
+                );
                 session.state = null;
             } else if (res.code === 'SM_INSUFFICIENT_BALANCE') {
                 finalReply = `❌ عذراً: رصيدك في ستار موبايل غير كافٍ لتجديد هذا الكرت (مطلوب: ${packagePrice} ريال).`;
@@ -1382,6 +1670,83 @@ bot.on("message", async (msg) => {
             return;
         }
 
+        if (session.state === "AWAITING_TELECOM_NUMBER" && session.pendingTelecomQuery) {
+            const pendingQuery = session.pendingTelecomQuery;
+            const targetMobile = normalizeTelecomTarget(textMessage);
+            if (!isValidTelecomTarget(pendingQuery.service, targetMobile)) {
+                await safeSendMessage(bot, chatId, `❌ الرقم غير صحيح. ${telecomTargetHint(pendingQuery.service)}`, { reply_markup: backKeyboard() });
+                return;
+            }
+
+            session.state = null;
+            session.pendingTelecomQuery = null;
+            let resultText;
+            if (pendingQuery.service === "yem" && pendingQuery.action === "query") {
+                resultText = await queryYemMobile(targetMobile);
+            } else {
+                const result = await callTelecomQuery(pendingQuery.service, pendingQuery.action, targetMobile, pendingQuery.type);
+                resultText = result.success === true
+                    ? `📱 *نتيجة الاستعلام - ${pendingQuery.serviceName}*\n\nرقم الخدمة: \`${targetMobile}\`\n\n${formatTelecomPayload("النتيجة", result)}`
+                    : `❌ ${extractArabicTelecomText(result.message) || "تعذر تنفيذ الاستعلام."}`;
+            }
+            await safeSendMessage(bot, chatId, resultText, { reply_markup: backKeyboard() });
+            return;
+        }
+
+        if (session.state === "AWAITING_TELECOM_NUMBER_FOR_PAYMENT" && session.pendingTelecomPayment) {
+            const targetMobile = normalizeTelecomTarget(textMessage);
+            const pendingPayment = session.pendingTelecomPayment;
+            if (!isValidTelecomTarget(pendingPayment.service, targetMobile)) {
+                await safeSendMessage(bot, chatId, `❌ الرقم غير صحيح. ${telecomTargetHint(pendingPayment.service)}`, { reply_markup: backKeyboard() });
+                return;
+            }
+            pendingPayment.targetMobile = targetMobile;
+            session.state = "AWAITING_TELECOM_AMOUNT";
+            await safeSendMessage(bot, chatId, `💳 أرسل مبلغ السداد للرقم \`${targetMobile}\` بالريال اليمني.\n\nسيتم الخصم من حسابك الموثق (${pendingPayment.payerMobile}) فقط.`, { reply_markup: backKeyboard() });
+            return;
+        }
+
+        if (session.state === "AWAITING_TELECOM_AMOUNT" && session.pendingTelecomPayment) {
+            const amountText = textMessage.trim().replace(/[٠-٩]/g, digit => "٠١٢٣٤٥٦٧٨٩".indexOf(digit));
+            const amount = Number(amountText.replace(/[^0-9.]/g, ""));
+            const pendingPayment = session.pendingTelecomPayment;
+            const payerMobile = getVerifiedCustomerMobile(senderId, session);
+            if (!payerMobile || payerMobile !== pendingPayment.payerMobile || !pendingPayment.targetMobile) {
+                session.state = null;
+                session.pendingTelecomPayment = null;
+                await safeSendMessage(bot, chatId, "❌ تعذر التحقق من حسابك. لم يتم تنفيذ أي خصم.", { reply_markup: backKeyboard() });
+                return;
+            }
+            if (!Number.isFinite(amount) || amount <= 0) {
+                await safeSendMessage(bot, chatId, "❌ أرسل مبلغًا صحيحًا أكبر من صفر، مثال: 1000", { reply_markup: backKeyboard() });
+                return;
+            }
+
+            const paymentResult = await callTelecomPayment(
+                pendingPayment.service,
+                pendingPayment.action,
+                pendingPayment.targetMobile,
+                amount,
+                payerMobile
+            );
+            console.log("Telecom Payment Response:", JSON.stringify({
+                service: pendingPayment.service,
+                action: pendingPayment.action,
+                mobile: pendingPayment.targetMobile,
+                payerMobile,
+                amount,
+                response: paymentResult
+            }));
+            session.state = null;
+            session.pendingTelecomPayment = null;
+            if (paymentResult.success === true) {
+                await safeSendMessage(bot, chatId, `✅ *تم تنفيذ السداد بنجاح*\n\n📱 الحساب المسدد: \`${pendingPayment.targetMobile}\`\n🏢 الخدمة: *${pendingPayment.serviceName}*\n💰 المبلغ: *${amount} ريال يمني*\n\nتم الخصم من حسابك الموثق فقط.`, { reply_markup: backKeyboard() });
+            } else {
+                await safeSendMessage(bot, chatId, `❌ *لم يتم تنفيذ السداد*\n\n${paymentResult.message || "رفض النظام العملية."}\n\nلم يتم اعتماد العملية من البوت.`, { reply_markup: backKeyboard() });
+            }
+            return;
+        }
+
         const mediaObj = getTelegramMediaObject(msg);
         if (mediaObj) {
             console.log(`⚡ إيصال (${mediaObj.type}) من ${senderId} (${pushName})...`);
@@ -1436,7 +1801,7 @@ bot.on("message", async (msg) => {
                     currency: creditResult.currency,
                     receiptNo: receiptData.receiptNo,
                     currentBalance: creditResult.newBalance,
-                    date: receiptData.date,
+                    date: formatReceiptDate(receiptData.date),
                     transferCompany: receiptData.transferCompany,
                     senderName: receiptData.fromAccountName || receiptData.senderName
                 });
