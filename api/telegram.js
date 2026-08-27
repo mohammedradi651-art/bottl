@@ -1,32 +1,26 @@
+import { handleTelegramUpdate } from "../index.js";
+
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
+  if (req.method === "GET") {
     return res.status(200).json({
       ok: true,
       message: "Telegram webhook is working"
     });
   }
 
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      ok: false,
+      message: "Method Not Allowed"
+    });
+  }
+
   try {
     const update = req.body;
 
-    console.log("Telegram update:", update);
+    console.log("Telegram update:", JSON.stringify(update));
 
-    const chatId = update?.message?.chat?.id;
-
-    if (chatId) {
-      const token = process.env.TELEGRAM_BOT_TOKEN;
-
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: "أهلاً بك 👋\nالبوت يعمل بنجاح ✅"
-        })
-      });
-    }
+    await handleTelegramUpdate(update);
 
     return res.status(200).json({
       ok: true
@@ -36,7 +30,8 @@ export default async function handler(req, res) {
     console.error("Telegram webhook error:", error);
 
     return res.status(500).json({
-      ok: false
+      ok: false,
+      error: error.message
     });
   }
 }
