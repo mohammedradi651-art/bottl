@@ -1498,8 +1498,10 @@ async function handleTextMessage(textMessage, chatId, senderPhone, pushName, bot
 
 🌐 *الشبكة:* ${session.selectedNetwork.name}
 📦 *الفئة:* ${className}
-🎫 *رقم الكرت:* ${res.data.cardNumber}${res.data.cardPassword ? `
+🎫 *رقم الكرت / الكود:* ${res.data.cardNumber}${res.data.cardPassword ? `
+🔑 *كلمة السر:* ${res.data.cardPassword}` : ''}
 💰 *السعر:* ${res.data.price || classPrice} ريال
+🔖 *رقم العملية:* ${res.transactionId || '-'}
 
 شكراً لاستخدامك خدماتنا! ⭐`;
                     session.state = null; session.selectedNetwork = null; session.availableClasses = null; session.pendingOrder = null;
