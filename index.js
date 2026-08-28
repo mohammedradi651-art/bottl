@@ -1,48 +1,24 @@
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
-
-const envPaths = [
-    path.resolve(__dirname, "../.env"),
-    path.resolve(__dirname, ".env")
-];
-
+const envPaths = [path.resolve(__dirname, "../.env"), path.resolve(__dirname, ".env")];
 const envPath = envPaths.find(filePath => fs.existsSync(filePath));
-
-require("dotenv").config(
-    envPath ? { path: envPath } : {}
-);
-
+require('dotenv').config(envPath ? { path: envPath } : {});
 const TelegramBot = require("node-telegram-bot-api");
-
-const { admin, db } = require("./firebaseAdmin");
-
 const { analyzeReceipt } = require("./receiptAnalyzer");
-
-const {
-    getUserAccount,
-    creditUserAccount,
-    isReceiptAuthorized,
-    formatReceiptDate
-} = require("./starMobileApi");
-
+const { getUserAccount, creditUserAccount, isReceiptAuthorized, formatReceiptDate } = require("./starMobileApi");
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-const ADMIN_CHAT_ID = process.env.TELEGRAM_CHAT_ID
-    ? Number(process.env.TELEGRAM_CHAT_ID)
-    : 932361893;
-
-const {
-    formatSuccessMessage,
-    formatDuplicateReceiptMessage,
-    formatInvalidReceiptMessage
+const ADMIN_CHAT_ID = process.env.TELEGRAM_CHAT_ID ? Number(process.env.TELEGRAM_CHAT_ID) : 932361893;
+const { 
+    formatSuccessMessage, 
+    formatDuplicateReceiptMessage, 
+    formatInvalidReceiptMessage 
 } = require("./messageTemplates");
 
 // ===== معالجة الأخطاء غير المتوقعة =====
 process.on("uncaughtException", (err) => {
     console.error("⚠️ خطأ غير متوقع:", err.message);
 });
-
 process.on("unhandledRejection", (reason) => {
     console.error("⚠️ رفض غير معالج:", reason?.message || reason);
 });
@@ -59,59 +35,31 @@ const NETWORKS_BASE_URL = "https://star26.vercel.app/api/external/v1/networks";
 // ===== ربط الحساب عبر OTP من Star SMS =====
 const SMS_API_URL = "https://star-sms.vercel.app/api/messages";
 const SMS_API_KEY = process.env.SMS_API_KEY;
-
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 
 // ===== جلسات المستخدمين =====
 const userSessions = {};
 
-// ===== حفظ أرقام المستخدمين في Firestore =====
-
-async function saveUserMobile(senderPhone, mobile) {
+// ===== حفظ واسترجاع أرقام المستخدمين المسجلة =====
+const USER_MOBILES_FILE = path.join(__dirname, "user_mobiles.json");
+function loadUserMobiles() {
     try {
-        await db
-            .collection("telegram_users")
-            .doc(String(senderPhone))
-            .set({
-                mobile: String(mobile).trim(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-
-        console.log(`📱 تم حفظ رقم المستخدم: ${senderPhone}`);
-        return true;
-
-    } catch (error) {
-        console.error(
-            "❌ خطأ في حفظ رقم المستخدم:",
-            error.message
-        );
-
-        return false;
-    }
+        const fs = require("fs");
+        if (fs.existsSync(USER_MOBILES_FILE)) {
+            return JSON.parse(fs.readFileSync(USER_MOBILES_FILE, "utf8"));
+        }
+    } catch (e) {}
+    return {};
 }
 
-async function getUserMobile(senderPhone) {
+function saveUserMobile(senderPhone, mobile) {
     try {
-        const doc = await db
-            .collection("telegram_users")
-            .doc(String(senderPhone))
-            .get();
-
-        if (!doc.exists) {
-            return null;
-        }
-
-        return doc.data().mobile || null;
-
-    } catch (error) {
-        console.error(
-            "❌ خطأ في استرجاع رقم المستخدم:",
-            error.message
-        );
-
-        return null;
-    }
+        const fs = require("fs");
+        const mobiles = loadUserMobiles();
+        mobiles[senderPhone] = mobile;
+        fs.writeFileSync(USER_MOBILES_FILE, JSON.stringify(mobiles, null, 2), "utf8");
+    } catch (e) {}
 }
 
 function isValidLinkingMobile(phone) {
