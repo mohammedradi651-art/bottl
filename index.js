@@ -32,10 +32,9 @@ const ALWADI_BASE_URL = "https://star26.vercel.app/api/external/v1";
 const NETWORKS_API_TOKEN = MASTER_API_TOKEN;
 const NETWORKS_BASE_URL = "https://star26.vercel.app/api/external/v1/networks";
 
-// ===== ربط الحساب عبر OTP من SimGate =====
-const SIMGATE_API_URL = "https://api.simgate.app/v1/sms/send";
-const SIMGATE_API_KEY = process.env.SIMGATE_API_KEY;
-const SIMGATE_DEVICE_ID = process.env.SIMGATE_DEVICE_ID;
+// ===== ربط الحساب عبر OTP من Star SMS =====
+const SMS_API_URL = "https://star-sms.vercel.app/api/messages";
+const SMS_API_KEY = process.env.SMS_API_KEY;
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 5;
 
@@ -89,33 +88,74 @@ function hashOtp(code) {
 }
 
 async function sendLinkingOtp(phone, code) {
-    if (!SIMGATE_API_KEY || !SIMGATE_DEVICE_ID) {
-        return { success: false, message: "إعدادات إرسال رمز التحقق غير مكتملة لدى الإدارة." };
+    if (!SMS_API_KEY) {
+        return {
+            success: false,
+            message: "إعدادات إرسال رمز التحقق غير مكتملة لدى الإدارة."
+        };
     }
+
     try {
-        const response = await fetch(SIMGATE_API_URL, {
+        // إزالة أي رموز مثل +967 أو المسافات
+        let cleanPhone = String(phone).replace(/\D/g, "");
+
+        // إذا كان الرقم يبدأ بـ 967 نحوله إلى رقم محلي
+        if (cleanPhone.startsWith("967")) {
+            cleanPhone = cleanPhone.substring(3);
+        }
+
+        const response = await fetch(SMS_API_URL, {
             method: "POST",
             headers: {
-                "x-api-key": SIMGATE_API_KEY,
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "x-api-key": SMS_API_KEY
             },
             body: JSON.stringify({
-                deviceId: SIMGATE_DEVICE_ID,
-                phoneNumber: `+967${phone}`,
+                phone: cleanPhone,
                 message: `رمز التحقق لربط حسابك في ستار موبايل هو: ${code}. صالح لمدة 10 دقائق.`
             })
         });
+
         const responseText = await response.text();
+
         let data = {};
-        try { data = responseText ? JSON.parse(responseText) : {}; } catch (error) { data = {}; }
-        if (!response.ok) {
-            console.error("SimGate OTP error:", response.status, responseText);
-            return { success: false, message: data.message || "تعذر إرسال رمز التحقق إلى الهاتف." };
+
+        try {
+            data = responseText ? JSON.parse(responseText) : {};
+        } catch (error) {
+            data = { raw: responseText };
         }
-        return { success: true, data };
+
+        if (!response.ok) {
+            console.error(
+                "Star SMS OTP error:",
+                response.status,
+                responseText
+            );
+
+            return {
+                success: false,
+                message: data.error || data.message || "تعذر إرسال رمز التحقق إلى الهاتف."
+            };
+        }
+
+        console.log("تم إرسال OTP بنجاح:", cleanPhone);
+
+        return {
+            success: true,
+            data
+        };
+
     } catch (error) {
-        console.error("SimGate connection error:", error.message);
-        return { success: false, message: "تعذر الاتصال بخدمة الرسائل حالياً." };
+        console.error(
+            "Star SMS connection error:",
+            error.message
+        );
+
+        return {
+            success: false,
+            message: "تعذر الاتصال بخدمة الرسائل حالياً."
+        };
     }
 }
 
