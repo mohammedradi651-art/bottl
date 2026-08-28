@@ -41,6 +41,7 @@ const OTP_MAX_ATTEMPTS = 5;
 // ===== جلسات المستخدمين =====
 const userSessions = {};
 
+<<<<<<< HEAD
 // ===== حفظ واسترجاع أرقام المستخدمين المسجلة عبر Firebase Firestore =====
 const {
     db,
@@ -55,14 +56,40 @@ async function getUserMobile(senderId) {
 
 async function saveUserMobile(senderId, mobile, extraData = {}) {
     return await saveUserMobileToFirebase(senderId, mobile, extraData);
+=======
+// ===== حفظ واسترجاع أرقام المستخدمين المسجلة =====
+const USER_MOBILES_FILE = path.join(__dirname, "user_mobiles.json");
+function loadUserMobiles() {
+    try {
+        const fs = require("fs");
+        if (fs.existsSync(USER_MOBILES_FILE)) {
+            return JSON.parse(fs.readFileSync(USER_MOBILES_FILE, "utf8"));
+        }
+    } catch (e) {}
+    return {};
+}
+
+function saveUserMobile(senderPhone, mobile) {
+    try {
+        const fs = require("fs");
+        const mobiles = loadUserMobiles();
+        mobiles[senderPhone] = mobile;
+        fs.writeFileSync(USER_MOBILES_FILE, JSON.stringify(mobiles, null, 2), "utf8");
+    } catch (e) {}
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
 }
 
 function isValidLinkingMobile(phone) {
     return /^7\d{8}$/.test(String(phone || "").trim());
 }
 
+<<<<<<< HEAD
 async function isAccountLinked(senderId) {
     const mobile = await getUserMobileFromFirebase(senderId);
+=======
+function isAccountLinked(senderId) {
+    const mobile = loadUserMobiles()[String(senderId)];
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
     return isValidLinkingMobile(mobile);
 }
 
@@ -70,6 +97,7 @@ function linkingKeyboard() {
     return { inline_keyboard: [[{ text: "ربط حسابي", callback_data: "link_account" }]] };
 }
 
+<<<<<<< HEAD
 function contactRequestKeyboard() {
     return {
         keyboard: [
@@ -80,6 +108,8 @@ function contactRequestKeyboard() {
     };
 }
 
+=======
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
 function linkingMessage() {
     return `🔗 *اربط حسابك في ستار موبايل*
 
@@ -88,6 +118,7 @@ function linkingMessage() {
 سيتم إرسال رمز تحقق OTP إلى رقمك المسجل، وبعد التحقق ستتمكن من استخدام جميع الخدمات والاطلاع على بيانات حسابك.`;
 }
 
+<<<<<<< HEAD
 function linkingPromptMessage() {
     return `📱 *يرجى إرسال رقم هاتفك المسجل في ستار موبايل*
 
@@ -98,6 +129,8 @@ function linkingPromptMessage() {
 سيصلك رمز تحقق OTP عبر رسالة SMS للتأكيد فوراً.`;
 }
 
+=======
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
 function hashOtp(code) {
     return crypto.createHash("sha256").update(String(code)).digest("hex");
 }
@@ -175,6 +208,7 @@ async function sendLinkingOtp(phone, code) {
 }
 
 async function sendLinkingPrompt(bot, chatId) {
+<<<<<<< HEAD
     await safeSendMessage(bot, chatId, linkingPromptMessage(), { reply_markup: contactRequestKeyboard() });
 }
 
@@ -190,18 +224,39 @@ async function finishAccountLinking(bot, chatId, senderId, mobile, pushName = ""
         chatId: chatId,
         linkedAt: new Date().toISOString()
     });
+=======
+    await safeSendMessage(bot, chatId, linkingMessage(), { reply_markup: linkingKeyboard() });
+}
+
+async function finishAccountLinking(bot, chatId, senderId, mobile) {
+    const balanceResponse = await callAlWadiAPI(`/balance?mobile=${encodeURIComponent(mobile)}`);
+    if (!balanceResponse.success || !balanceResponse.data) {
+        await safeSendMessage(bot, chatId, "❌ لم يتم العثور على حساب بهذا الرقم في تطبيق ستار موبايل. تأكد من الرقم وحاول مرة أخرى.", { reply_markup: linkingKeyboard() });
+        return false;
+    }
+
+    saveUserMobile(senderId, mobile);
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
     const account = balanceResponse.data;
     const accountName = account.user || account.name || account.fullName || account.customerName || "المشترك العزيز";
     const accountBalance = account.balance ?? 0;
     const currency = account.currency === "YER" ? "ريال يمني" : (account.currency || "ريال يمني");
+<<<<<<< HEAD
     await safeSendMessage(bot, chatId, `✅ *تم ربط حسابك وحفظه بنجاح*
+=======
+    await safeSendMessage(bot, chatId, `✅ *تم ربط حسابك بنجاح*
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
 
 مرحبًا بك، *${accountName}* 👋
 
 📱 رقم المشترك: \`${mobile}\`
 💰 الرصيد الحالي: *${accountBalance} ${currency}*
 
+<<<<<<< HEAD
 أصبح حسابك جاهزًا لاستخدام جميع خدمات ستار موبايل.`, { reply_markup: mainMenuKeyboard() });
+=======
+أصبح حسابك جاهزًا لاستخدام خدمات ستار موبايل.`, { reply_markup: mainMenuKeyboard() });
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
     return true;
 }
 
@@ -442,17 +497,29 @@ async function handleMenuCallback(bot, query) {
     await bot.answerCallbackQuery(query.id);
 
     if (query.data === "link_account") {
+<<<<<<< HEAD
         if (await isAccountLinked(senderId)) {
+=======
+        if (isAccountLinked(senderId)) {
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
             await safeSendMessage(bot, chatId, "✅ حسابك مربوط مسبقًا ولا يمكن تغييره من هذا البوت.", { reply_markup: mainMenuKeyboard() });
             return;
         }
         const session = userSessions[senderId] || (userSessions[senderId] = { history: [], state: null });
         session.state = "LINKING_AWAITING_PHONE";
+<<<<<<< HEAD
         await safeSendMessage(bot, chatId, linkingPromptMessage(), { reply_markup: contactRequestKeyboard() });
         return;
     }
 
     if (!(await isAccountLinked(senderId))) {
+=======
+        await safeSendMessage(bot, chatId, "📱 أرسل رقم جوالك المسجل في تطبيق ستار موبايل.\n\nيجب أن يبدأ بالرقم 7 ويتكون من 9 أرقام، مثال: 770326828", { reply_markup: linkingKeyboard() });
+        return;
+    }
+
+    if (!isAccountLinked(senderId)) {
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
         await sendLinkingPrompt(bot, chatId);
         return;
     }
@@ -478,8 +545,12 @@ async function handleMenuCallback(bot, query) {
         const action = parts[3];
         const type = parts[4];
         const service = TELECOM_SERVICES.find(item => item.code === serviceCode);
+<<<<<<< HEAD
         const verifiedMobile = await getVerifiedCustomerMobile(senderId, userSessions[senderId]);
         if (!service || !verifiedMobile) {
+=======
+        if (!service || !getVerifiedCustomerMobile(senderId, userSessions[senderId])) {
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
             await safeSendMessage(bot, chatId, "تعذر تحديد حسابك الموثق. أعد ربط الحساب ثم حاول مرة أخرى.", { reply_markup: backKeyboard() });
             return;
         }
@@ -494,7 +565,11 @@ async function handleMenuCallback(bot, query) {
         const serviceCode = parts[2];
         const action = parts[3];
         const service = TELECOM_SERVICES.find(item => item.code === serviceCode);
+<<<<<<< HEAD
         const payerMobile = await getVerifiedCustomerMobile(senderId, userSessions[senderId]);
+=======
+        const payerMobile = getVerifiedCustomerMobile(senderId, userSessions[senderId]);
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
         if (!service || !payerMobile) {
             await safeSendMessage(bot, chatId, "تعذر تحديد حسابك الموثق. أعد ربط الحساب ثم حاول مرة أخرى.", { reply_markup: backKeyboard() });
             return;
@@ -536,7 +611,11 @@ async function handleMenuCallback(bot, query) {
         const selectedPackage = ALWADI_PACKAGES.find(item => item.id === packageId);
         if (!selectedPackage) return;
 
+<<<<<<< HEAD
         const targetMobile = await getVerifiedCustomerMobile(senderId, session);
+=======
+        const targetMobile = getVerifiedCustomerMobile(senderId, session);
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
         if (!targetMobile) {
             await safeSendMessage(bot, chatId, "قبل تنفيذ التجديد، أرسل رقم هاتفك اليمني المسجل في Star Mobile أولاً.", { reply_markup: backKeyboard() });
             return;
@@ -584,9 +663,15 @@ async function handleMenuCallback(bot, query) {
     }
 
     if (query.data === "menu_account") {
+<<<<<<< HEAD
         const senderMobile = formatMobileForAPI(senderId);
         const storedMobile = await getUserMobile(senderId);
         const mobile = storedMobile || (isValidYemeniMobile(senderMobile) ? senderMobile : null);
+=======
+        const mobileMap = loadUserMobiles();
+        const senderMobile = formatMobileForAPI(senderId);
+        const mobile = mobileMap[senderId] || (isValidYemeniMobile(senderMobile) ? senderMobile : null);
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
         if (!mobile) {
             await safeSendMessage(bot, chatId, "👤 *حسابي*\n\nأرسل رقم هاتفك المسجل في Star Mobile لعرض بيانات الحساب والرصيد.", { reply_markup: backKeyboard() });
             return;
@@ -629,9 +714,15 @@ async function handleMenuCallback(bot, query) {
 
     if (query.data === "menu_networks") {
         const session = userSessions[senderId] || (userSessions[senderId] = { history: [], state: null });
+<<<<<<< HEAD
         const senderMobile = formatMobileForAPI(senderId);
         const storedMobile = await getUserMobile(senderId);
         const mobile = storedMobile || session.registeredMobile || (isValidYemeniMobile(senderMobile) ? senderMobile : null);
+=======
+        const mobileMap = loadUserMobiles();
+        const senderMobile = formatMobileForAPI(senderId);
+        const mobile = mobileMap[senderId] || session.registeredMobile || (isValidYemeniMobile(senderMobile) ? senderMobile : null);
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
         const result = await callNetworksAPI({ action: "list_networks", mobile });
 
         if (!result.success || !Array.isArray(result.data) || result.data.length === 0) {
@@ -832,10 +923,17 @@ function formatMobileForAPI(phone) {
     return clean;
 }
 
+<<<<<<< HEAD
 async function getVerifiedCustomerMobile(senderId, session = {}) {
     const mobile = await getUserMobile(senderId);
     const senderMobile = formatMobileForAPI(senderId);
     const candidate = mobile || session.registeredMobile || (isValidYemeniMobile(senderMobile) ? senderMobile : null);
+=======
+function getVerifiedCustomerMobile(senderId, session = {}) {
+    const mobileMap = loadUserMobiles();
+    const senderMobile = formatMobileForAPI(senderId);
+    const candidate = mobileMap[String(senderId)] || session.registeredMobile || senderMobile;
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
     return isValidYemeniMobile(candidate) ? candidate : null;
 }
 
@@ -1643,14 +1741,21 @@ async function handleTelegramMessage(msg) {
             "العميل";
 
         const textMessage = msg.text || msg.caption || "";
+<<<<<<< HEAD
         const hasContact = !!(msg.contact && msg.contact.phone_number);
         const inputMobileRaw = hasContact ? msg.contact.phone_number : textMessage;
+=======
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
         const session =
             userSessions[senderId] ||
             (userSessions[senderId] = { history: [], state: null });
 
         if (/^\/start(?:@\w+)?(?:\s|$)/i.test(msg.text || "")) {
+<<<<<<< HEAD
             if (await isAccountLinked(senderId)) {
+=======
+            if (isAccountLinked(senderId)) {
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                 await sendMainMenu(bot, chatId);
             } else {
                 session.state = "LINKING_AWAITING_PHONE";
@@ -1666,6 +1771,7 @@ async function handleTelegramMessage(msg) {
             firstName: msg.from?.first_name,
             lastName: msg.from?.last_name,
             text: textMessage,
+<<<<<<< HEAD
             hasContact,
             contactPhone: msg.contact?.phone_number,
             messageId: msg.message_id
@@ -1675,14 +1781,28 @@ async function handleTelegramMessage(msg) {
             const cleanInput = (inputMobileRaw || "").trim();
 
             if (hasContact || session.state === "LINKING_AWAITING_PHONE" || (!session.state && isValidLinkingMobile(formatMobileForAPI(cleanInput)))) {
+=======
+            messageId: msg.message_id
+        }, null, 2));
+
+        if (!isAccountLinked(senderId)) {
+            const cleanInput = textMessage.trim();
+
+            if (session.state === "LINKING_AWAITING_PHONE") {
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                 const mobile = formatMobileForAPI(cleanInput);
 
                 if (!isValidLinkingMobile(mobile)) {
                     await safeSendMessage(
                         bot,
                         chatId,
+<<<<<<< HEAD
                         "❌ الرقم غير صحيح. اضغط على زر «📱 إرسال رقم هاتفي تلقائياً» أو أرسل رقمًا يبدأ بـ 7 ويتكون من 9 أرقام، مثال: 770326828",
                         { reply_markup: contactRequestKeyboard() }
+=======
+                        "❌ الرقم غير صحيح. أرسل رقمًا يبدأ بـ 7 ويتكون من 9 أرقام، مثال: 770326828",
+                        { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     );
                     return;
                 }
@@ -1695,8 +1815,13 @@ async function handleTelegramMessage(msg) {
                     await safeSendMessage(
                         bot,
                         chatId,
+<<<<<<< HEAD
                         "❌ لم يتم العثور على حساب بهذا الرقم في تطبيق ستار موبايل. تأكد من الرقم وحاول مجدداً.",
                         { reply_markup: contactRequestKeyboard() }
+=======
+                        "❌ لم يتم العثور على حساب بهذا الرقم في تطبيق ستار موبايل. أرسل رقم الحساب المسجل الصحيح.",
+                        { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     );
                     return;
                 }
@@ -1709,7 +1834,11 @@ async function handleTelegramMessage(msg) {
                         bot,
                         chatId,
                         `❌ ${smsResult.message}\n\nتعذر بدء الربط حاليًا، حاول لاحقًا.`,
+<<<<<<< HEAD
                         { reply_markup: contactRequestKeyboard() }
+=======
+                        { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     );
                     return;
                 }
@@ -1725,8 +1854,13 @@ async function handleTelegramMessage(msg) {
                 await safeSendMessage(
                     bot,
                     chatId,
+<<<<<<< HEAD
                     `✅ تم إرسال رمز التحقق (OTP) في رسالة SMS إلى هاتفك (\`${mobile}\`).\n\nأرسل الرمز المكون من 4 أرقام لتأكيد الربط خلال 10 دقائق:`,
                     { reply_markup: { remove_keyboard: true } }
+=======
+                    "✅ تم إرسال رمز التحقق إلى رقمك المسجل في تطبيق ستار موبايل.\n\nأرسل الرمز المكون من 4 أرقام خلال 10 دقائق.",
+                    { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                 );
                 return;
             }
@@ -1742,8 +1876,13 @@ async function handleTelegramMessage(msg) {
                     await safeSendMessage(
                         bot,
                         chatId,
+<<<<<<< HEAD
                         "⌛ انتهت صلاحية الرمز. اضغط «📱 إرسال رقم هاتفي تلقائياً» وابدأ من جديد.",
                         { reply_markup: contactRequestKeyboard() }
+=======
+                        "⌛ انتهت صلاحية الرمز. اضغط «ربط حسابي» وابدأ من جديد.",
+                        { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     );
                     return;
                 }
@@ -1753,7 +1892,11 @@ async function handleTelegramMessage(msg) {
                         bot,
                         chatId,
                         "❌ أرسل رمز التحقق المكون من 4 أرقام فقط.",
+<<<<<<< HEAD
                         { reply_markup: { remove_keyboard: true } }
+=======
+                        { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     );
                     return;
                 }
@@ -1772,8 +1915,13 @@ async function handleTelegramMessage(msg) {
                     await safeSendMessage(
                         bot,
                         chatId,
+<<<<<<< HEAD
                         "❌ رمز التحقق غير صحيح. تأكد من الرسالة النصية وأعد إدخاله.",
                         { reply_markup: { remove_keyboard: true } }
+=======
+                        "❌ رمز التحقق غير صحيح.",
+                        { reply_markup: linkingKeyboard() }
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     );
                     return;
                 }
@@ -1785,8 +1933,12 @@ async function handleTelegramMessage(msg) {
                     bot,
                     chatId,
                     senderId,
+<<<<<<< HEAD
                     otp.mobile,
                     pushName
+=======
+                    otp.mobile
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                 );
                 return;
             }
@@ -1888,7 +2040,11 @@ async function handleTelegramMessage(msg) {
             );
 
             const pendingPayment = session.pendingTelecomPayment;
+<<<<<<< HEAD
             const payerMobile = await getVerifiedCustomerMobile(
+=======
+            const payerMobile = getVerifiedCustomerMobile(
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                 senderId,
                 session
             );
@@ -2030,11 +2186,19 @@ async function handleTelegramMessage(msg) {
                     return;
                 }
 
+<<<<<<< HEAD
                 const storedMobile = await getUserMobile(senderId);
                 const senderMobile = formatMobileForAPI(senderId);
 
                 const registeredMobile =
                     storedMobile ||
+=======
+                const userMobilesMap = loadUserMobiles();
+                const senderMobile = formatMobileForAPI(senderId);
+
+                const registeredMobile =
+                    userMobilesMap[senderId] ||
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
                     userSessions[senderId]?.registeredMobile ||
                     (
                         isValidYemeniMobile(senderMobile)

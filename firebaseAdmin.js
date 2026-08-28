@@ -1,4 +1,5 @@
 const admin = require("firebase-admin");
+<<<<<<< HEAD
 const { getApps, initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 
@@ -135,3 +136,19 @@ module.exports = {
     saveUserMobileToFirebase,
     getAllUserMobilesFromFirebase
 };
+=======
+
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        }),
+    });
+}
+
+const db = admin.firestore();
+
+module.exports = { admin, db };
+>>>>>>> de4ce9adc67dc01c3c8890dd9bab24668220f1b3
